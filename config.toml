@@ -1,0 +1,13 @@
+# JMComic API 配置
+# 请替换为你的实际账号密码
+
+jm_username = "wolvezb"
+jm_password = "Wolvezb2002.com"
+
+# 可选：覆盖默认域名
+# api_domain = "www.cdnhth.cc"
+# image_domain = "cdn-msp2.jmapiproxy2.cc"
+
+# 可选：图片并发下载数量（默认：10）
+# 数值越大下载越快，但会占用更多资源
+img_concurrency = 4

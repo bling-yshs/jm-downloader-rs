@@ -1,0 +1,7 @@
+/target
+/.idea
+/download/
+/.claude/settings.local.json
+/jm-downloader-rs.tar
+/server-run.sh
+/build.sh
