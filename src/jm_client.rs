@@ -175,6 +175,10 @@ impl JmClient {
             )));
         }
 
+        if matches!(jm_resp.data.as_array(), Some(data) if data.is_empty()) {
+            return Err(AppError::NotFound(format!("漫画 {} 未找到", aid)));
+        }
+
         let data = jm_resp
             .data
             .as_str()
