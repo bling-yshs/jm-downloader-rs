@@ -502,8 +502,7 @@ pub async fn download_comic(
                 image_files.push((index, save_path));
             }
             Ok(Err(e)) => {
-                error!("下载图片失败: {}", e);
-                return Err(e);
+                error!("下载图片失败，已跳过: {}", e);
             }
             Err(e) => {
                 error!("任务崩溃: {}", e);
