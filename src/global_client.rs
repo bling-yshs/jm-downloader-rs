@@ -1,13 +1,13 @@
 // 全局 JmClient 管理模块
 // 提供线程安全的客户端访问和自动会话管理
 
+use jm_downloader_rs::AppError;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use jm_downloader_rs::AppError;
 
-use crate::jm_client::JmClient;
 use crate::config::Config;
-use crate::models::{GetComicRespData, GetChapterRespData};
+use crate::jm_client::JmClient;
+use crate::models::{GetChapterRespData, GetComicRespData};
 
 type Result<T> = std::result::Result<T, AppError>;
 
@@ -36,10 +36,7 @@ impl GlobalJmClient {
     /// - Ok(GlobalJmClient): 成功创建并登录的客户端
     /// - Err: 创建或登录失败
     pub async fn new(config: &Config) -> Result<Self> {
-        let client = JmClient::new(
-            config.api_domain.clone(),
-            config.image_domain.clone(),
-        );
+        let client = JmClient::new(config.api_domain.clone(), config.image_domain.clone());
 
         // 立即执行登录
         client
@@ -82,7 +79,10 @@ impl GlobalJmClient {
         self.relogin().await
     }
 
-    /// 重新登录（当检测到会话失效时调用）
+    /// 在检测到会话失效时重新登录。
+    ///
+    /// # 返回
+    /// 登录成功时返回空，登录失败时返回应用错误。
     async fn relogin(&self) -> Result<()> {
         // 获取写锁以执行重新登录
         let mut session_valid = self.session_valid.write().await;
@@ -98,9 +98,7 @@ impl GlobalJmClient {
         let client = self.client.read().await;
 
         // 执行登录
-        client
-            .login(&self.username, &self.password)
-            .await?;
+        client.login(&self.username, &self.password).await?;
 
         // 标记会话为有效
         *session_valid = true;

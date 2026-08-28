@@ -9,7 +9,9 @@ use base64::Engine;
 use jm_downloader_rs::AppError;
 use reqwest::cookie::Jar;
 use reqwest_middleware::{ClientBuilder, ClientWithMiddleware};
-use reqwest_retry::{policies::ExponentialBackoff, RetryTransientMiddleware, Retryable, RetryableStrategy};
+use reqwest_retry::{
+    policies::ExponentialBackoff, RetryTransientMiddleware, Retryable, RetryableStrategy,
+};
 use serde_json::{json, Value};
 
 use crate::models::{GetChapterRespData, GetComicRespData, JmResp};
@@ -24,7 +26,17 @@ type AppResult<T> = std::result::Result<T, AppError>;
 struct JmRetryStrategy;
 
 impl RetryableStrategy for JmRetryStrategy {
-    fn handle(&self, res: &std::result::Result<reqwest::Response, reqwest_middleware::Error>) -> Option<Retryable> {
+    /// 判断 JMComic API 请求结果是否需要重试。
+    ///
+    /// # 参数
+    /// - `res`: API 请求结果。
+    ///
+    /// # 返回
+    /// 瞬时错误需要重试时返回重试标记，否则返回空。
+    fn handle(
+        &self,
+        res: &std::result::Result<reqwest::Response, reqwest_middleware::Error>,
+    ) -> Option<Retryable> {
         match res {
             Err(reqwest_middleware::Error::Reqwest(_)) => Some(Retryable::Transient),
             Err(reqwest_middleware::Error::Middleware(_)) => Some(Retryable::Transient),
@@ -209,6 +221,13 @@ impl JmClient {
         Ok(comic)
     }
 
+    /// 获取指定章节的图片元数据。
+    ///
+    /// # 参数
+    /// - `id`: 章节 ID。
+    ///
+    /// # 返回
+    /// 请求和解密成功时返回章节数据，否则返回应用错误。
     pub async fn get_chapter(&self, id: i64) -> AppResult<GetChapterRespData> {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -258,13 +277,12 @@ impl JmClient {
             .ok_or_else(|| AppError::Internal("Chapter data is not a string".to_string()))?;
 
         let decrypted_data = decrypt_data(ts, data)?;
-        let chapter: GetChapterRespData = serde_json::from_str(&decrypted_data)
-            .map_err(|e| {
-                AppError::Internal(format!(
-                    "Failed to parse decrypted chapter data: {}: {}",
-                    decrypted_data, e
-                ))
-            })?;
+        let chapter: GetChapterRespData = serde_json::from_str(&decrypted_data).map_err(|e| {
+            AppError::Internal(format!(
+                "Failed to parse decrypted chapter data: {}: {}",
+                decrypted_data, e
+            ))
+        })?;
 
         Ok(chapter)
     }

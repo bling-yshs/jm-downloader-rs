@@ -6,9 +6,7 @@ use rocket::{
     serde::json::Json,
 };
 use rocket_okapi::{
-    gen::OpenApiGenerator,
-    okapi::openapi3::Responses,
-    response::OpenApiResponderInner,
+    gen::OpenApiGenerator, okapi::openapi3::Responses, response::OpenApiResponderInner,
     util::add_schema_response,
 };
 use schemars::JsonSchema;
@@ -76,6 +74,8 @@ pub enum AppError {
     Unauthorized(String),
     #[error("{0}")]
     Forbidden(String),
+    #[error("{0}")]
+    TooManyTasks(String),
 
     /// 未分类/内部错误
     #[error("{0}")]
@@ -83,17 +83,25 @@ pub enum AppError {
 }
 
 impl AppError {
-    /// 失败时写入 R.code（你可以根据需要改成你的业务码）
+    /// 返回失败响应使用的业务错误码。
+    ///
+    /// # 返回
+    /// 当前错误类型对应的业务错误码。
     pub fn code(&self) -> &'static str {
         match self {
             AppError::BadRequest(_) => "10001",
             AppError::Unauthorized(_) => "10002",
             AppError::Forbidden(_) => "10003",
             AppError::NotFound(_) => "10004",
+            AppError::TooManyTasks(_) => "10005",
             AppError::Internal(_) => "20000",
         }
     }
 
+    /// 返回可供接口响应和任务记录使用的错误消息。
+    ///
+    /// # 返回
+    /// 当前错误的文本消息。
     pub fn message(&self) -> String {
         self.to_string()
     }

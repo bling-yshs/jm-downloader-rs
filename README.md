@@ -30,6 +30,8 @@ jm-downloader-rs 是一个使用 Rust 和 Rocket 框架构建的 JMComic 禁漫�
 - 📄 **PDF 合并生成** - 支持将下载的图片合并为 PDF 文件，可选密码加密
 - 🔐 **自动会话管理** - 检测到会话失效时自动重新登录，无需手动干预
 - ⚡ **并发下载优化** - 可配置并发数（默认 32），平衡下载速度与资源占用
+- 📋 **后台任务队列** - 下载请求立即返回任务 ID，支持任务判重、进度查询和取消
+- ♻️ **图片缓存复用** - 不同任务自动复用已下载图片，只重试缺失页面
 - 🔄 **自动重试机制** - 网络请求失败时自动重试，提高下载成功率
 - 🗑️ **过期自动清理** - 下载完成后可设置自动删除时间，节省存储空间
 - 📚 **API 文档集成** - 内置 Swagger UI 文档（访问 `/docs`）
@@ -73,6 +75,8 @@ docker run -d \
 | `-e JM_API_DOMAIN` | API 域名（可选） |
 | `-e JM_IMAGE_DOMAIN` | 图片域名（可选） |
 | `-e JM_IMG_CONCURRENCY` | 并发下载数（可选，默认 32） |
+| `-e JM_TASK_CONCURRENCY` | 同时执行的下载任务数（可选，默认 1） |
+| `-e JM_TASK_QUEUE_CAPACITY` | 最大排队任务数（可选，默认 100） |
 
 部署完成后，访问 `http://localhost:8000/docs` 查看 API 文档。
 
@@ -81,8 +85,10 @@ docker run -d \
 | 端点 | 方法 | 说明 |
 |:---|:---:|:---|
 | `/api/comic/getInfo` | POST | 获取漫画信息（标题、类型、作者、章节列表等） |
-| `/api/comic/downloadChapter` | POST | 下载章节漫画（支持批量下载多个章节） |
-| `/api/comic/downloadComic` | POST | 下载普通漫画（可选合并为 PDF） |
+| `/api/comic/downloadChapter` | POST | 提交章节漫画下载任务，返回任务 ID |
+| `/api/comic/downloadComic` | POST | 提交普通漫画下载任务，返回任务 ID |
+| `/api/task/findTaskInfoById` | POST | 按任务 ID 查询状态、进度和结果 |
+| `/api/task/cancelTaskById` | POST | 按任务 ID 取消下载任务 |
 | `/api/health` | GET | 健康检查 |
 | `/download/*` | GET | 静态文件服务（访问下载的图片） |
 | `/docs` | GET | Swagger API 文档 |
@@ -100,6 +106,32 @@ docker run -d \
   "time": "2025-01-20T14:50:12+08:00"
 }
 ```
+
+### 下载任务
+
+两个下载接口提交成功后，统一响应中的 `data` 直接返回任务 ID：
+
+```json
+{
+  "code": "0",
+  "success": true,
+  "data": "b23c82d342eb4f839d0f98ed9d58b9e2",
+  "message": null,
+  "time": "2025-01-20T14:50:12+08:00"
+}
+```
+
+查询或取消任务时提交任务 ID：
+
+```json
+{
+  "task_id": "b23c82d342eb4f839d0f98ed9d58b9e2"
+}
+```
+
+任务状态包括 `queued`、`running`、`cancelling`、`succeeded`、`failed` 和 `cancelled`。任务查询结果同时返回图片总数、成功数、失败数、当前章节以及最终下载结果。
+
+内容一致的排队、运行或完整成功任务会返回已有任务 ID。普通漫画按照漫画 ID、PDF 合并参数和密码判重，章节漫画按照漫画 ID 和有序章节 ID 列表判重。
 
 ## 🛠️ 技术栈
 
@@ -124,6 +156,7 @@ jm-downloader-rs/
 │   ├── jm_client.rs               # 🌐 JMComic API 客户端
 │   ├── global_client.rs           # 🔄 全局客户端管理器（自动会话管理）
 │   ├── handlers.rs                # 📡 API 路由处理器
+│   ├── task_manager.rs            # 📋 下载任务调度、判重、状态和资源管理
 │   ├── image_processor.rs         # 🖼️ 图片处理模块（下载、拼接、转换）
 │   ├── models.rs                  # 📦 数据模型定义
 │   ├── config.rs                  # ⚙️ 环境变量配置

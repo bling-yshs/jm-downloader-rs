@@ -14,6 +14,10 @@ pub struct Config {
     pub image_domain: String,
     #[serde(default = "default_img_concurrency")]
     pub img_concurrency: usize,
+    #[serde(default = "default_task_concurrency")]
+    pub task_concurrency: usize,
+    #[serde(default = "default_task_queue_capacity")]
+    pub task_queue_capacity: usize,
 }
 
 fn default_api_domain() -> String {
@@ -28,15 +32,43 @@ fn default_img_concurrency() -> usize {
     32
 }
 
+/// 返回默认的任务执行并发数。
+///
+/// # 返回
+/// 默认任务执行并发数。
+fn default_task_concurrency() -> usize {
+    1
+}
+
+/// 返回默认的任务排队容量。
+///
+/// # 返回
+/// 默认任务排队容量。
+fn default_task_queue_capacity() -> usize {
+    100
+}
+
+/// 从环境变量加载应用配置。
+///
+/// # 返回
+/// 加载成功时返回配置，配置缺失或格式错误时返回应用错误。
 pub fn load_config() -> Result<Config> {
     let jm_username = read_required_env("JM_USERNAME")?;
     let jm_password = read_required_env("JM_PASSWORD")?;
     let api_domain = read_optional_env("JM_API_DOMAIN").unwrap_or_else(default_api_domain);
     let image_domain = read_optional_env("JM_IMAGE_DOMAIN").unwrap_or_else(default_image_domain);
     let img_concurrency = read_optional_env("JM_IMG_CONCURRENCY")
-        .map(|value| parse_img_concurrency(&value))
+        .map(|value| parse_positive_usize("JM_IMG_CONCURRENCY", &value))
         .transpose()?
         .unwrap_or_else(default_img_concurrency);
+    let task_concurrency = read_optional_env("JM_TASK_CONCURRENCY")
+        .map(|value| parse_positive_usize("JM_TASK_CONCURRENCY", &value))
+        .transpose()?
+        .unwrap_or_else(default_task_concurrency);
+    let task_queue_capacity = read_optional_env("JM_TASK_QUEUE_CAPACITY")
+        .map(|value| parse_positive_usize("JM_TASK_QUEUE_CAPACITY", &value))
+        .transpose()?
+        .unwrap_or_else(default_task_queue_capacity);
 
     Ok(Config {
         jm_username,
@@ -44,6 +76,8 @@ pub fn load_config() -> Result<Config> {
         api_domain,
         image_domain,
         img_concurrency,
+        task_concurrency,
+        task_queue_capacity,
     })
 }
 
@@ -64,14 +98,20 @@ fn read_optional_env(key: &str) -> Option<String> {
         .filter(|value| !value.is_empty())
 }
 
-fn parse_img_concurrency(value: &str) -> Result<usize> {
+/// 解析必须大于零的无符号整数配置。
+///
+/// # 参数
+/// - `key`: 环境变量名称。
+/// - `value`: 待解析的环境变量值。
+///
+/// # 返回
+/// 解析成功时返回正整数，格式错误或数值为零时返回应用错误。
+fn parse_positive_usize(key: &str, value: &str) -> Result<usize> {
     let parsed = value
         .parse::<usize>()
-        .map_err(|e| AppError::Internal(format!("环境变量 JM_IMG_CONCURRENCY 解析失败: {}: {}", value, e)))?;
+        .map_err(|e| AppError::Internal(format!("环境变量 {} 解析失败: {}: {}", key, value, e)))?;
     if parsed == 0 {
-        return Err(AppError::Internal(
-            "环境变量 JM_IMG_CONCURRENCY 必须大于 0".to_string(),
-        ));
+        return Err(AppError::Internal(format!("环境变量 {} 必须大于 0", key)));
     }
     Ok(parsed)
 }
