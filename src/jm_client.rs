@@ -85,6 +85,14 @@ impl JmClient {
         }
     }
 
+    /// 登录 JMComic 并兼容带有或不带有 UTF-8 BOM 的响应。
+    ///
+    /// # 参数
+    /// - `username`: 登录用户名。
+    /// - `password`: 登录密码。
+    ///
+    /// # 返回
+    /// 登录成功时返回空值，否则返回请求或响应处理错误。
     pub async fn login(&self, username: &str, password: &str) -> AppResult<()> {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -123,7 +131,8 @@ impl JmClient {
             )));
         }
 
-        let jm_resp: JmResp = serde_json::from_str(&body).map_err(|e| {
+        let body = body.trim_start_matches('\u{feff}');
+        let jm_resp: JmResp = serde_json::from_str(body).map_err(|e| {
             AppError::Internal(format!("Failed to parse login response: {}: {}", body, e))
         })?;
 
@@ -137,6 +146,13 @@ impl JmClient {
         Ok(())
     }
 
+    /// 获取并解密漫画元数据，兼容带有或不带有 UTF-8 BOM 的响应。
+    ///
+    /// # 参数
+    /// - `aid`: 漫画 ID。
+    ///
+    /// # 返回
+    /// 请求和解密成功时返回漫画数据，否则返回应用错误。
     pub async fn get_comic(&self, aid: i64) -> AppResult<GetComicRespData> {
         let ts = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -172,7 +188,8 @@ impl JmClient {
             )));
         }
 
-        let jm_resp: JmResp = serde_json::from_str(&body).map_err(|e| {
+        let body = body.trim_start_matches('\u{feff}');
+        let jm_resp: JmResp = serde_json::from_str(body).map_err(|e| {
             AppError::Internal(format!("Failed to parse comic response: {}: {}", body, e))
         })?;
 
@@ -221,7 +238,7 @@ impl JmClient {
         Ok(comic)
     }
 
-    /// 获取指定章节的图片元数据。
+    /// 获取指定章节的图片元数据，兼容带有或不带有 UTF-8 BOM 的响应。
     ///
     /// # 参数
     /// - `id`: 章节 ID。
@@ -260,7 +277,8 @@ impl JmClient {
             )));
         }
 
-        let jm_resp: JmResp = serde_json::from_str(&body).map_err(|e| {
+        let body = body.trim_start_matches('\u{feff}');
+        let jm_resp: JmResp = serde_json::from_str(body).map_err(|e| {
             AppError::Internal(format!("Failed to parse chapter response: {}: {}", body, e))
         })?;
 
