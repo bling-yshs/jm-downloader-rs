@@ -47,7 +47,7 @@ jm-downloader-rs 是一个使用 Rust 和 Rocket 框架构建的 JMComic 禁漫�
 ### 拉取镜像
 
 ```bash
-docker pull blingyshs/jm-downloader-rs:latest
+docker pull ghcr.io/bling-yshs/jm-downloader-rs:latest
 ```
 
 ### 运行容器
@@ -61,7 +61,7 @@ docker run -d \
   -e JM_USERNAME=your_username \
   -e JM_PASSWORD=your_password \
   -e TZ=Asia/Shanghai \
-  blingyshs/jm-downloader-rs:latest
+  ghcr.io/bling-yshs/jm-downloader-rs:latest
 ```
 
 ### 参数说明
