@@ -8,8 +8,8 @@ type Result<T> = std::result::Result<T, AppError>;
 pub struct Config {
     pub jm_username: String,
     pub jm_password: String,
-    #[serde(default = "default_api_domain")]
-    pub api_domain: String,
+    #[serde(default)]
+    pub api_domain: Option<String>,
     #[serde(default = "default_image_domain")]
     pub image_domain: String,
     #[serde(default = "default_img_concurrency")]
@@ -18,10 +18,6 @@ pub struct Config {
     pub task_concurrency: usize,
     #[serde(default = "default_task_queue_capacity")]
     pub task_queue_capacity: usize,
-}
-
-fn default_api_domain() -> String {
-    "www.cdnhth.cc".to_string()
 }
 
 fn default_image_domain() -> String {
@@ -55,7 +51,7 @@ fn default_task_queue_capacity() -> usize {
 pub fn load_config() -> Result<Config> {
     let jm_username = read_required_env("JM_USERNAME")?;
     let jm_password = read_required_env("JM_PASSWORD")?;
-    let api_domain = read_optional_env("JM_API_DOMAIN").unwrap_or_else(default_api_domain);
+    let api_domain = read_optional_env("JM_API_DOMAIN");
     let image_domain = read_optional_env("JM_IMAGE_DOMAIN").unwrap_or_else(default_image_domain);
     let img_concurrency = read_optional_env("JM_IMG_CONCURRENCY")
         .map(|value| parse_positive_usize("JM_IMG_CONCURRENCY", &value))

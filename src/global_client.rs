@@ -6,6 +6,7 @@ use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::config::Config;
+use crate::domain_selector::select_api_domain;
 use crate::jm_client::JmClient;
 use crate::models::{GetChapterRespData, GetComicRespData};
 
@@ -27,7 +28,7 @@ pub struct GlobalJmClient {
 }
 
 impl GlobalJmClient {
-    /// 创建新的全局客户端实例并立即登录
+    /// 按配置指定或自动选择 API 域名，创建全局客户端并立即登录。
     ///
     /// # 参数
     /// - config: 应用配置
@@ -36,7 +37,8 @@ impl GlobalJmClient {
     /// - Ok(GlobalJmClient): 成功创建并登录的客户端
     /// - Err: 创建或登录失败
     pub async fn new(config: &Config) -> Result<Self> {
-        let client = JmClient::new(config.api_domain.clone(), config.image_domain.clone());
+        let api_domain = select_api_domain(config.api_domain.as_deref()).await?;
+        let client = JmClient::new(api_domain, config.image_domain.clone());
 
         // 立即执行登录
         client

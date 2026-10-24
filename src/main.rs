@@ -2,6 +2,7 @@
 extern crate rocket;
 
 mod config;
+mod domain_selector;
 mod global_client;
 mod handlers;
 mod image_processor;

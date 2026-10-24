@@ -16,10 +16,10 @@ use serde_json::{json, Value};
 
 use crate::models::{GetChapterRespData, GetComicRespData, JmResp};
 
-const APP_TOKEN_SECRET: &str = "18comicAPP";
+pub(crate) const APP_TOKEN_SECRET: &str = "18comicAPP";
 const APP_TOKEN_SECRET_2: &str = "18comicAPPContent";
-const APP_DATA_SECRET: &str = "185Hcomic3PAPP7R";
-const APP_VERSION: &str = "2.0.13";
+pub(crate) const APP_DATA_SECRET: &str = "185Hcomic3PAPP7R";
+pub(crate) const APP_VERSION: &str = "2.0.13";
 
 type AppResult<T> = std::result::Result<T, AppError>;
 
