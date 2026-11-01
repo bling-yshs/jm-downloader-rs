@@ -56,7 +56,7 @@ pub struct JmClient {
     client: ClientWithMiddleware,
     #[allow(dead_code)]
     cookie_jar: Arc<Jar>,
-    api_domain: String,
+    pub(crate) api_domain: String,
     #[allow(dead_code)]
     pub image_domain: String,
 }

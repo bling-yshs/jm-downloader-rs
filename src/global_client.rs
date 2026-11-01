@@ -2,11 +2,13 @@
 // 提供线程安全的客户端访问和自动会话管理
 
 use jm_downloader_rs::AppError;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::config::Config;
-use crate::domain_selector::select_api_domain;
+use crate::domain_selector::select_api_domains;
 use crate::jm_client::JmClient;
 use crate::models::{GetChapterRespData, GetComicRespData};
 
@@ -37,7 +39,10 @@ impl GlobalJmClient {
     /// - Ok(GlobalJmClient): 成功创建并登录的客户端
     /// - Err: 创建或登录失败
     pub async fn new(config: &Config) -> Result<Self> {
-        let api_domain = select_api_domain(config.api_domain.as_deref()).await?;
+        let api_domain = select_api_domains(config.api_domain.as_deref())
+            .await?
+            .remove(0);
+        info!("选中 JM API 线路: {}", api_domain);
         let client = JmClient::new(api_domain, config.image_domain.clone());
 
         // 立即执行登录
@@ -116,93 +121,121 @@ impl GlobalJmClient {
         warn!("会话已标记为失效");
     }
 
-    /// 执行带自动重试的 API 调用 - 获取漫画信息
+    /// 获取漫画信息，失败时最多尝试两条低延迟备选线路。
     ///
-    /// 如果第一次调用因认证失败，会自动重新登录并重试一次
+    /// # 参数
+    /// - `aid`: 漫画 ID。
+    ///
+    /// # 返回
+    /// 返回漫画数据，全部尝试失败时返回错误。
     pub async fn get_comic(&self, aid: i64) -> Result<GetComicRespData> {
-        // 第一次尝试
-        let client = self.get_client().await?;
-        match client.get_comic(aid).await {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                // 检查是否是认证错误
-                if is_auth_error(&e) {
-                    warn!("检测到认证错误，尝试重新登录: {}", e);
-                    drop(client); // 释放读锁
-
-                    // 标记会话失效
-                    self.mark_session_invalid().await;
-
-                    // 重新登录
-                    self.relogin().await?;
-
-                    // 重试一次
-                    let client = self.get_client().await?;
-                    client.get_comic(aid).await
-                } else {
-                    // 非认证错误，直接返回
-                    Err(e)
-                }
-            }
-        }
+        self.request_with_failover(|client| Box::pin(client.get_comic(aid)))
+            .await
     }
 
-    /// 执行带自动重试的 API 调用 - 获取章节信息
+    /// 获取章节信息，失败时最多尝试两条低延迟备选线路。
+    ///
+    /// # 参数
+    /// - `id`: 章节 ID。
+    ///
+    /// # 返回
+    /// 返回章节数据，全部尝试失败时返回错误。
     pub async fn get_chapter(&self, id: i64) -> Result<GetChapterRespData> {
-        // 第一次尝试
-        let client = self.get_client().await?;
-        match client.get_chapter(id).await {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                // 检查是否是认证错误
-                if is_auth_error(&e) {
-                    warn!("检测到认证错误，尝试重新登录: {}", e);
-                    drop(client); // 释放读锁
-
-                    // 标记会话失效
-                    self.mark_session_invalid().await;
-
-                    // 重新登录
-                    self.relogin().await?;
-
-                    // 重试一次
-                    let client = self.get_client().await?;
-                    client.get_chapter(id).await
-                } else {
-                    // 非认证错误，直接返回
-                    Err(e)
-                }
-            }
-        }
+        self.request_with_failover(|client| Box::pin(client.get_chapter(id)))
+            .await
     }
 
-    /// 执行带自动重试的 API 调用 - 获取 scramble ID
+    /// 获取图片重排 ID，失败时最多尝试两条低延迟备选线路。
+    ///
+    /// # 参数
+    /// - `id`: 章节 ID。
+    ///
+    /// # 返回
+    /// 返回图片重排 ID，全部尝试失败时返回错误。
     pub async fn get_scramble_id(&self, id: i64) -> Result<i64> {
-        // 第一次尝试
-        let client = self.get_client().await?;
-        match client.get_scramble_id(id).await {
-            Ok(result) => Ok(result),
-            Err(e) => {
-                // 检查是否是认证错误
-                if is_auth_error(&e) {
-                    warn!("检测到认证错误，尝试重新登录: {}", e);
-                    drop(client); // 释放读锁
+        self.request_with_failover(|client| Box::pin(client.get_scramble_id(id)))
+            .await
+    }
 
-                    // 标记会话失效
+    /// 执行读取请求，保留认证重试，并在故障时按实时探测耗时尝试两条备选。
+    ///
+    /// # 参数
+    /// - `request`: 可在不同客户端上重复执行的异步读取操作。
+    ///
+    /// # 返回
+    /// 返回请求结果并将成功备选设为当前线路；全部失败时返回最后一次错误。
+    async fn request_with_failover<T, F>(&self, request: F) -> Result<T>
+    where
+        T: Send,
+        F: for<'a> Fn(&'a JmClient) -> Pin<Box<dyn Future<Output = Result<T>> + Send + 'a>>
+            + Send
+            + Sync,
+    {
+        let mut failed_domain = self.client.read().await.api_domain.clone();
+        let initial = async {
+            let client = self.get_client().await?;
+            failed_domain = client.api_domain.clone();
+            let result = request(&client).await;
+            drop(client);
+            match result {
+                Err(error) if is_auth_error(&error) => {
+                    warn!("检测到认证错误，尝试重新登录: {}", error);
                     self.mark_session_invalid().await;
-
-                    // 重新登录
                     self.relogin().await?;
-
-                    // 重试一次
                     let client = self.get_client().await?;
-                    client.get_scramble_id(id).await
-                } else {
-                    // 非认证错误，直接返回
-                    Err(e)
+                    failed_domain = client.api_domain.clone();
+                    request(&client).await
+                }
+                result => result,
+            }
+        }
+        .await;
+        let mut last_error = match initial {
+            Ok(result) => return Ok(result),
+            Err(error @ (AppError::NotFound(_) | AppError::BadRequest(_))) => return Err(error),
+            Err(error) => error,
+        };
+
+        warn!(
+            "JM API 线路 {} 请求失败，开始探测备选: {}",
+            failed_domain, last_error
+        );
+        let domains = match select_api_domains(None).await {
+            Ok(domains) => domains,
+            Err(error) => {
+                warn!("获取备选线路失败: {}", error);
+                return Err(last_error);
+            }
+        };
+        for domain in domains
+            .iter()
+            .filter(|domain| *domain != &failed_domain)
+            .take(2)
+        {
+            info!("尝试 JM API 备选线路: {}", domain);
+            let candidate = JmClient::new(domain.clone(), self.image_domain.clone());
+            let result = async {
+                candidate.login(&self.username, &self.password).await?;
+                request(&candidate).await
+            }
+            .await;
+            match result {
+                Ok(result) => {
+                    // 与重新登录保持相同的锁顺序，完整替换客户端及其登录会话。
+                    let mut session_valid = self.session_valid.write().await;
+                    let mut client = self.client.write().await;
+                    *client = candidate;
+                    *session_valid = true;
+                    info!("JM API 请求成功，当前线路已切换为: {}", domain);
+                    return Ok(result);
+                }
+                Err(error) => {
+                    warn!("JM API 备选线路 {} 失败: {}", domain, error);
+                    last_error = error;
                 }
             }
         }
+        Err(last_error)
     }
 
     /// 获取图片域名（用于构建图片 URL）

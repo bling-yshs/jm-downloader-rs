@@ -21,23 +21,23 @@ const HOST_CONFIG_SECRET: &str = "diosfjckwpqpdfjkvnqQjsik";
 const FALLBACK_BASE: &str = "https://www.cdnhjk.net";
 const PROBE_CONCURRENCY: usize = 6;
 
-/// 使用指定域名，或获取远程候选列表并探测选择 API 域名。
+/// 使用指定域名，或获取远程候选列表并按业务响应耗时排序。
 ///
 /// # 参数
 /// - `configured`: 用户通过环境变量指定的域名；为空时自动选线。
 ///
 /// # 返回
-/// 返回选中的主机名；全部候选和备用线路不可用时返回错误。
-pub async fn select_api_domain(configured: Option<&str>) -> Result<String> {
+/// 返回非空的主机名列表；全部候选和备用线路不可用时返回错误。
+pub async fn select_api_domains(configured: Option<&str>) -> Result<Vec<String>> {
     if let Some(domain) = configured
         .map(str::trim)
         .filter(|domain| !domain.is_empty())
     {
         info!("使用指定的 JM API 域名: {}", domain);
-        return Ok(domain.to_owned());
+        return Ok(vec![domain.to_owned()]);
     }
 
-    info!("未指定 JM_API_DOMAIN，开始自动选择 JM API 域名");
+    info!("开始获取并探测 JM API 候选域名");
     let client = Client::builder()
         .timeout(Duration::from_secs(5))
         .redirect(reqwest::redirect::Policy::none())
@@ -80,8 +80,9 @@ pub async fn select_api_domain(configured: Option<&str>) -> Result<String> {
 
     if !domains.is_empty() {
         info!("获取到 {} 个 JM API 候选域名，开始探测", domains.len());
-        if let Some(domain) = select_fastest_domain(&client, domains).await {
-            return Ok(domain.trim_start_matches("https://").to_owned());
+        let ranked = rank_domains(&client, domains).await;
+        if !ranked.is_empty() {
+            return Ok(ranked);
         }
     }
 
@@ -95,7 +96,9 @@ pub async fn select_api_domain(configured: Option<&str>) -> Result<String> {
             ))
         })?;
     info!("选中 JM API 备用域名: {}", FALLBACK_BASE);
-    Ok(FALLBACK_BASE.trim_start_matches("https://").to_owned())
+    Ok(vec![FALLBACK_BASE
+        .trim_start_matches("https://")
+        .to_owned()])
 }
 
 /// 解密远程域名配置，筛选 HTTPS 主机地址并去重。
@@ -149,18 +152,18 @@ fn decode_api_domains(body: &str) -> Result<Vec<String>> {
     Ok(domains)
 }
 
-/// 有限并发探测候选域名，选择业务响应有效且耗时最短的线路。
+/// 有限并发探测候选域名，按有效业务响应耗时升序排列线路。
 ///
 /// # 参数
 /// - `client`: 具有请求超时的 HTTP 客户端。
 /// - `domains`: 待探测的候选基础地址。
 ///
 /// # 返回
-/// 返回最快的可用基础地址，全部失败时返回空。
-async fn select_fastest_domain(client: &Client, domains: Vec<String>) -> Option<String> {
+/// 返回按耗时排序的可用主机名列表，全部失败时返回空列表。
+async fn rank_domains(client: &Client, domains: Vec<String>) -> Vec<String> {
     let mut pending = domains.into_iter();
     let mut probes = JoinSet::new();
-    let mut fastest: Option<(String, Duration)> = None;
+    let mut available = Vec::new();
     loop {
         while probes.len() < PROBE_CONCURRENCY {
             let Some(domain) = pending.next() else {
@@ -182,18 +185,17 @@ async fn select_fastest_domain(client: &Client, domains: Vec<String>) -> Option<
                     domain,
                     elapsed.as_millis()
                 );
-                if fastest.as_ref().is_none_or(|(_, best)| elapsed < *best) {
-                    fastest = Some((domain, elapsed));
-                }
+                available.push((domain, elapsed));
             }
             Ok((domain, Err(error))) => warn!("JM API 线路 {} 探测失败: {}", domain, error),
             Err(error) => warn!("JM API 线路探测任务失败: {}", error),
         }
     }
-    fastest.map(|(domain, _)| {
-        info!("自动选中 JM API 线路: {}", domain);
-        domain
-    })
+    available.sort_by_key(|(_, elapsed)| *elapsed);
+    available
+        .into_iter()
+        .map(|(domain, _)| domain.trim_start_matches("https://").to_owned())
+        .collect()
 }
 
 /// 使用现有 API 签名探测 setting 接口，校验状态、业务码和数据内容。
